@@ -86,29 +86,25 @@ func ContextInclude(filename string, ctx interface{}, fs http.FileSystem,
 
 	// load template into ctx's if possible
 	// assumes that ctx.Template already has its Funcs set
-	execTpl := true
 	if tpl != nil {
-		_, err = tpl.ParseFiles(filename)
-		execTpl = false
+		tpl = tpl.New(filename)
 	} else {
-		tpl, err = template.New(filename).Funcs(TemplateFuncs).Parse(string(body))
+		tpl = template.New(filename)
 	}
+
+	tpl, err = tpl.Funcs(TemplateFuncs).Parse(string(body))
 	if err != nil {
 		return "", err
 	}
 
-	if execTpl {
-		buf := includeBufs.Get().(*bytes.Buffer)
-		buf.Reset()
-		defer includeBufs.Put(buf)
-		err = tpl.Execute(buf, ctx)
-		if err != nil {
-			return "", err
-		}
-		return buf.String(), nil
-	} else {
-		return "", nil
+	buf := includeBufs.Get().(*bytes.Buffer)
+	buf.Reset()
+	defer includeBufs.Put(buf)
+	err = tpl.Execute(buf, ctx)
+	if err != nil {
+		return "", err
 	}
+	return buf.String(), nil
 }
 
 // Now returns the current timestamp in the specified format.
