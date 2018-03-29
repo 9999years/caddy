@@ -40,7 +40,7 @@ type Data struct {
 // Note: using {{template 'template-name' .}} instead might be better.
 func (d Data) Include(filename string, args ...interface{}) (string, error) {
 	d.Args = args
-	return httpserver.ContextInclude(filename, d, d.Root)
+	return httpserver.ContextInclude(filename, d, d.Root, d.Template)
 }
 
 var templateUpdateMu sync.RWMutex

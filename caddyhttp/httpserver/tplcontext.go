@@ -39,10 +39,11 @@ import (
 
 // Context is the context with which Caddy templates are executed.
 type Context struct {
-	Root http.FileSystem
-	Req  *http.Request
-	URL  *url.URL
-	Args []interface{} // defined by arguments to .Include
+	Template *template.Template
+	Root     http.FileSystem
+	Req      *http.Request
+	URL      *url.URL
+	Args     []interface{} // defined by arguments to .Include
 
 	// just used for adding preload links for server push
 	responseHeader http.Header
@@ -62,7 +63,52 @@ func NewContextWithHeader(rh http.Header) Context {
 // Include returns the contents of filename relative to the site root.
 func (c Context) Include(filename string, args ...interface{}) (string, error) {
 	c.Args = args
-	return ContextInclude(filename, c, c.Root)
+	return ContextInclude(filename, c, c.Root, c.Template)
+}
+
+// ContextInclude opens filename using fs and executes a template with the context ctx.
+// This does the same thing that Context.Include() does, but with the ability to provide
+// your own context so that the included files can have access to additional fields your
+// type may provide. You can embed Context in your type, then override its Include method
+// to call this function with ctx being the instance of your type, and fs being Context.Root.
+func ContextInclude(filename string, ctx interface{}, fs http.FileSystem,
+		tpl *template.Template) (string, error) {
+	file, err := fs.Open(filename)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	body, err := ioutil.ReadAll(file)
+	if err != nil {
+		return "", err
+	}
+
+	// load template into ctx's if possible
+	// assumes that ctx.Template already has its Funcs set
+	execTpl := true
+	if tpl != nil {
+		_, err = tpl.ParseFiles(filename)
+		execTpl = false
+	} else {
+		tpl, err = template.New(filename).Funcs(TemplateFuncs).Parse(string(body))
+	}
+	if err != nil {
+		return "", err
+	}
+
+	if execTpl {
+		buf := includeBufs.Get().(*bytes.Buffer)
+		buf.Reset()
+		defer includeBufs.Put(buf)
+		err = tpl.Execute(buf, ctx)
+		if err != nil {
+			return "", err
+		}
+		return buf.String(), nil
+	} else {
+		return "", nil
+	}
 }
 
 // Now returns the current timestamp in the specified format.
@@ -102,6 +148,23 @@ func (c Context) Hostname() string {
 	}
 
 	return hostnameList[0]
+}
+
+
+// First returns the first argument if it exists or d otherwise.
+// equivalent to {{if gt (len .Args) 0}}{{index .Args 0}}{{else}}d{{end}}
+// A similar use-case to Swig's {{default}} function, which is left open
+// deferring to #1958.
+// {{.First ""} might be a reasonable way to implement a single optional
+// argument; this makes First an ergonomic alternative to {{index .Args 0}},
+// which causes the entire template to fail if len(Args) == 0 (i.e. First's
+// failure condition is non-destructive)
+func (c Context) First(d interface{}) interface{} {
+	if len(c.Args) > 0 {
+		return c.Args[0]
+	} else {
+		return d
+	}
 }
 
 // Env gets a map of the environment variables.
@@ -283,39 +346,6 @@ func (c Context) Markdown(filename string) (string, error) {
 	markdown := blackfriday.Markdown([]byte(body), renderer, extns)
 
 	return string(markdown), nil
-}
-
-// ContextInclude opens filename using fs and executes a template with the context ctx.
-// This does the same thing that Context.Include() does, but with the ability to provide
-// your own context so that the included files can have access to additional fields your
-// type may provide. You can embed Context in your type, then override its Include method
-// to call this function with ctx being the instance of your type, and fs being Context.Root.
-func ContextInclude(filename string, ctx interface{}, fs http.FileSystem) (string, error) {
-	file, err := fs.Open(filename)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-
-	body, err := ioutil.ReadAll(file)
-	if err != nil {
-		return "", err
-	}
-
-	tpl, err := template.New(filename).Funcs(TemplateFuncs).Parse(string(body))
-	if err != nil {
-		return "", err
-	}
-
-	buf := includeBufs.Get().(*bytes.Buffer)
-	buf.Reset()
-	defer includeBufs.Put(buf)
-	err = tpl.Execute(buf, ctx)
-	if err != nil {
-		return "", err
-	}
-
-	return buf.String(), nil
 }
 
 // ToLower will convert the given string to lower case.

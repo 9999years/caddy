@@ -74,6 +74,7 @@ func (t Templates) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error
 		}
 
 		// create a new template
+		// TODO: consider replacing this with template.ParseFiles
 		templateName := filepath.Base(fpath)
 		tpl := template.New(templateName)
 
@@ -96,6 +97,7 @@ func (t Templates) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error
 		ctx.Root = t.FileSys
 		ctx.Req = r
 		ctx.URL = r.URL
+		ctx.Template = tpl
 
 		// execute the template
 		buf.Reset()
